@@ -9,7 +9,8 @@ Use this module to communicate with Ostranna USB Host (Usb2radio)
 *get_all_device_ports() returns list of comports with Ostranna devices connected 
                         (answer 'Ack 0' to 'Ping\r\n') as ['COM4', ...]
 *open_port(port_id: str) takes comport as str parameter (open_port('COM4') and returns open port or None
-*send command(ser, command, parameters) send command with parameters to ser port
+*send command(ser, command, parameters) send command with parameters to ser port, returns send status
+              ("ok", "Bad data", "Unknown command" or "No device port") 
 *send query(ser, command, parameters) send query with parameters to ser port and returns answer
 *close_port(ser) gets result of open_port(port_id) as parameter and closes it 
 """
@@ -96,29 +97,34 @@ def create_command(command: str, *parameters) -> str:
     :param parameters: list wit parameters
     :return: string <command param1 param2 ... \r\n>
     """
+    if parameters and isinstance(parameters, tuple) and isinstance(parameters[0], tuple):
+        parameters = parameters[0]
     str_param: str = ' '.join([str(param) for param in parameters]) if parameters else ""
     result = command+' ' + str_param + '\r\n' if str_param else command + '\r\n'
     return result
 
 
-def send_command(ser, command: str, *parameters) -> bool:
+def send_command(ser, command: str, *parameters) -> str:
     """
     sends command with parameters to comport
     :param ser: opened port
     :param command: command to send
     :param parameters: list of parameters
-    :return: True if success else False
+    :return: 'Ok' for success, 'Bad data', 'Wrong command' or 'No Device' for errors
     """
     try:
-        command: bytes = bytes(create_command(command, parameters), encoding='utf-8')
+        command: bytes = bytes(create_command(command, parameters), encoding='utf-8') if parameters \
+            else bytes(create_command(command), encoding='utf-8')
         ser.write(command)
         answer: str = ser.readall().decode('utf-8')
-        if answer.lower() == 'ack 0':
-            return True
+        if answer.strip().lower() == 'ack 0':
+            return 'Ok'
+        elif answer.strip().lower() == 'ack 6':
+            return 'Unknown command'
         else:
-            return False
+            return 'Bad data'
     except serial.SerialException:
-        return False
+        return 'No device port'
     except Exception:
         raise
 
@@ -140,7 +146,7 @@ def send_query(ser, command: str, *parameters) -> str:
         if answer.lower() == 'ack 6':
             return 'Unknown command'
         else:
-            return answer
+            return answer.strip()
     except serial.SerialException:
         return 'Port error'
     except Exception:
